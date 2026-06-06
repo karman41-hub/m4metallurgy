@@ -566,9 +566,21 @@
     letter-spacing: 0.3px;
   }
 
-  .nl-submit:hover { background: var(--ore-light); }
+  .nl-submit:hover:not(:disabled) { background: var(--ore-light); }
+  .nl-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 
   .nl-note { font-size: 0.78rem; color: #4a5a6b; line-height: 1.5; }
+
+  .nl-msg {
+    font-size: 0.88rem;
+    padding: 0.75rem 1rem;
+    border-radius: 3px;
+    display: none;
+    line-height: 1.5;
+  }
+  .nl-msg.success { background: rgba(80,180,100,0.15); color: #6fcf8a; border: 1px solid rgba(80,180,100,0.3); }
+  .nl-msg.error   { background: rgba(220,80,60,0.15);  color: #f07060; border: 1px solid rgba(220,80,60,0.3); }
+  .nl-input.invalid { border-color: rgba(220,80,60,0.6); }
 
   /* ── ABOUT ── */
   .about {
@@ -885,13 +897,25 @@
     <h2>Stay sharp.<br>Get new content first.</h2>
     <p>No fluff. One email per month with a new video or article on metallurgy, process fundamentals, and circular metals — for engineers and students.</p>
   </div>
-  <div class="nl-form">
+  <!--
+    MAILCHIMP SETUP:
+    1. Go to Mailchimp → Audience → Signup forms → Embedded forms
+    2. Copy the form action URL (looks like: https://xxxxx.us1.list-manage.com/subscribe/post?u=xxx&id=xxx)
+    3. Paste it as the value of data-action below (replace YOUR_MAILCHIMP_ACTION_URL)
+  -->
+  <div class="nl-form"
+       data-action="YOUR_MAILCHIMP_ACTION_URL">
     <div class="nl-row">
-      <input class="nl-input" type="text" placeholder="First name" autocomplete="given-name">
-      <input class="nl-input" type="text" placeholder="Last name" autocomplete="family-name">
+      <input id="nl-fname" class="nl-input" type="text" name="FNAME" placeholder="First name" autocomplete="given-name">
+      <input id="nl-lname" class="nl-input" type="text" name="LNAME" placeholder="Last name" autocomplete="family-name">
     </div>
-    <input class="nl-input" type="email" placeholder="Email address" autocomplete="email">
-    <button class="nl-submit">Subscribe to m4metallurgy</button>
+    <input id="nl-email" class="nl-input" type="email" name="EMAIL" placeholder="Email address" autocomplete="email" required>
+    <!-- Mailchimp honeypot — do not remove -->
+    <div style="position:absolute;left:-5000px" aria-hidden="true">
+      <input type="text" name="b_honeypot" tabindex="-1" value="">
+    </div>
+    <button class="nl-submit" id="nl-btn">Subscribe to m4metallurgy</button>
+    <div class="nl-msg" id="nl-msg"></div>
     <p class="nl-note">No spam. Unsubscribe any time. Your data stays yours.</p>
   </div>
 </section>
@@ -946,5 +970,90 @@
   <div class="footer-copy">© 2026 m4metallurgy. All rights reserved.</div>
 </footer>
 
+<script>
+(function () {
+  const form    = document.querySelector('.nl-form');
+  const btn     = document.getElementById('nl-btn');
+  const msgBox  = document.getElementById('nl-msg');
+  const emailEl = document.getElementById('nl-email');
+  const fnameEl = document.getElementById('nl-fname');
+
+  function showMsg(type, text) {
+    msgBox.className = 'nl-msg ' + type;
+    msgBox.textContent = text;
+    msgBox.style.display = 'block';
+  }
+
+  function validate() {
+    let ok = true;
+    [emailEl, fnameEl].forEach(el => el.classList.remove('invalid'));
+
+    if (!fnameEl.value.trim()) {
+      fnameEl.classList.add('invalid');
+      ok = false;
+    }
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRe.test(emailEl.value.trim())) {
+      emailEl.classList.add('invalid');
+      ok = false;
+    }
+    return ok;
+  }
+
+  btn.addEventListener('click', function () {
+    msgBox.style.display = 'none';
+    if (!validate()) {
+      showMsg('error', 'Please enter your first name and a valid email address.');
+      return;
+    }
+
+    const action = form.dataset.action || '';
+    if (!action || action === 'YOUR_MAILCHIMP_ACTION_URL') {
+      showMsg('error', 'Newsletter not connected yet — check back soon!');
+      return;
+    }
+
+    // Build JSONP URL (Mailchimp: replace /post with /post-json and add &c=?)
+    const jsonpUrl = action.replace('/post?', '/post-json?') + '&c=mc_callback'
+      + '&EMAIL=' + encodeURIComponent(emailEl.value.trim())
+      + '&FNAME=' + encodeURIComponent(fnameEl.value.trim())
+      + '&LNAME=' + encodeURIComponent(document.getElementById('nl-lname').value.trim());
+
+    btn.disabled = true;
+    btn.textContent = 'Subscribing…';
+
+    window.mc_callback = function (data) {
+      btn.disabled = false;
+      btn.textContent = 'Subscribe to m4metallurgy';
+      if (data.result === 'success') {
+        showMsg('success', '✓ You\'re in! Check your inbox to confirm your subscription.');
+        emailEl.value = ''; fnameEl.value = ''; document.getElementById('nl-lname').value = '';
+      } else {
+        const msg = data.msg || 'Something went wrong. Please try again.';
+        showMsg('error', msg.includes('already subscribed')
+          ? '✓ You\'re already subscribed — no worries!'
+          : msg.replace(/<[^>]+>/g, ''));
+      }
+      // Clean up script tag
+      const s = document.getElementById('mc-jsonp');
+      if (s) s.parentNode.removeChild(s);
+    };
+
+    const script = document.createElement('script');
+    script.id = 'mc-jsonp';
+    script.src = jsonpUrl;
+    document.body.appendChild(script);
+
+    // Timeout fallback
+    setTimeout(function () {
+      if (btn.disabled) {
+        btn.disabled = false;
+        btn.textContent = 'Subscribe to m4metallurgy';
+        showMsg('error', 'Request timed out. Please try again.');
+      }
+    }, 8000);
+  });
+})();
+</script>
 </body>
 </html>
