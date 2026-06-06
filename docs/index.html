@@ -898,22 +898,19 @@
     <p>No fluff. One email per month with a new video or article on metallurgy, process fundamentals, and circular metals — for engineers and students.</p>
   </div>
   <!--
-    MAILCHIMP SETUP:
-    1. Go to Mailchimp → Audience → Signup forms → Embedded forms
-    2. Copy the form action URL (looks like: https://xxxxx.us1.list-manage.com/subscribe/post?u=xxx&id=xxx)
-    3. Paste it as the value of data-action below (replace YOUR_MAILCHIMP_ACTION_URL)
+    BREVO SETUP — 2 values to fill in below:
+    1. Sign up free at brevo.com (no credit card)
+    2. Go to Contacts → Lists → note your list ID (the number next to your list name)
+       → paste it as data-brevo-form-id="YOUR_BREVO_LIST_ID"
+    3. Go to Settings (top-right) → API Keys → Generate a new key (free)
+       → paste it as data-brevo-key="YOUR_BREVO_API_KEY"
   -->
-  <div class="nl-form"
-       data-action="YOUR_MAILCHIMP_ACTION_URL">
+  <div class="nl-form" data-brevo-form-id="YOUR_BREVO_LIST_ID" data-brevo-key="YOUR_BREVO_API_KEY">
     <div class="nl-row">
-      <input id="nl-fname" class="nl-input" type="text" name="FNAME" placeholder="First name" autocomplete="given-name">
-      <input id="nl-lname" class="nl-input" type="text" name="LNAME" placeholder="Last name" autocomplete="family-name">
+      <input id="nl-fname" class="nl-input" type="text" placeholder="First name" autocomplete="given-name">
+      <input id="nl-lname" class="nl-input" type="text" placeholder="Last name" autocomplete="family-name">
     </div>
-    <input id="nl-email" class="nl-input" type="email" name="EMAIL" placeholder="Email address" autocomplete="email" required>
-    <!-- Mailchimp honeypot — do not remove -->
-    <div style="position:absolute;left:-5000px" aria-hidden="true">
-      <input type="text" name="b_honeypot" tabindex="-1" value="">
-    </div>
+    <input id="nl-email" class="nl-input" type="email" placeholder="Email address" autocomplete="email" required>
     <button class="nl-submit" id="nl-btn">Subscribe to m4metallurgy</button>
     <div class="nl-msg" id="nl-msg"></div>
     <p class="nl-note">No spam. Unsubscribe any time. Your data stays yours.</p>
@@ -977,6 +974,7 @@
   const msgBox  = document.getElementById('nl-msg');
   const emailEl = document.getElementById('nl-email');
   const fnameEl = document.getElementById('nl-fname');
+  const lnameEl = document.getElementById('nl-lname');
 
   function showMsg(type, text) {
     msgBox.className = 'nl-msg ' + type;
@@ -986,17 +984,9 @@
 
   function validate() {
     let ok = true;
-    [emailEl, fnameEl].forEach(el => el.classList.remove('invalid'));
-
-    if (!fnameEl.value.trim()) {
-      fnameEl.classList.add('invalid');
-      ok = false;
-    }
-    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRe.test(emailEl.value.trim())) {
-      emailEl.classList.add('invalid');
-      ok = false;
-    }
+    [emailEl, fnameEl].forEach(function(el) { el.classList.remove('invalid'); });
+    if (!fnameEl.value.trim()) { fnameEl.classList.add('invalid'); ok = false; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) { emailEl.classList.add('invalid'); ok = false; }
     return ok;
   }
 
@@ -1007,51 +997,44 @@
       return;
     }
 
-    const action = form.dataset.action || '';
-    if (!action || action === 'YOUR_MAILCHIMP_ACTION_URL') {
+    const formId = (form.dataset.brevoFormId || '').trim();
+    if (!formId || formId === 'YOUR_BREVO_FORM_ID') {
       showMsg('error', 'Newsletter not connected yet — check back soon!');
       return;
     }
 
-    // Build JSONP URL (Mailchimp: replace /post with /post-json and add &c=?)
-    const jsonpUrl = action.replace('/post?', '/post-json?') + '&c=mc_callback'
-      + '&EMAIL=' + encodeURIComponent(emailEl.value.trim())
-      + '&FNAME=' + encodeURIComponent(fnameEl.value.trim())
-      + '&LNAME=' + encodeURIComponent(document.getElementById('nl-lname').value.trim());
-
     btn.disabled = true;
     btn.textContent = 'Subscribing…';
 
-    window.mc_callback = function (data) {
+    const payload = JSON.stringify({
+      email: emailEl.value.trim(),
+      attributes: { FIRSTNAME: fnameEl.value.trim(), LASTNAME: lnameEl.value.trim() },
+      listIds: [Number(formId)],
+      updateEnabled: true
+    });
+
+    fetch('https://api.brevo.com/v3/contacts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': form.dataset.brevoKey || '' },
+      body: payload
+    })
+    .then(function (res) {
       btn.disabled = false;
       btn.textContent = 'Subscribe to m4metallurgy';
-      if (data.result === 'success') {
-        showMsg('success', '✓ You\'re in! Check your inbox to confirm your subscription.');
-        emailEl.value = ''; fnameEl.value = ''; document.getElementById('nl-lname').value = '';
+      if (res.status === 201 || res.status === 204) {
+        showMsg('success', '✓ You\'re subscribed! Welcome to m4metallurgy.');
+        emailEl.value = ''; fnameEl.value = ''; lnameEl.value = '';
+      } else if (res.status === 400) {
+        showMsg('error', 'Please check your email address and try again.');
       } else {
-        const msg = data.msg || 'Something went wrong. Please try again.';
-        showMsg('error', msg.includes('already subscribed')
-          ? '✓ You\'re already subscribed — no worries!'
-          : msg.replace(/<[^>]+>/g, ''));
+        showMsg('error', 'Something went wrong. Please try again shortly.');
       }
-      // Clean up script tag
-      const s = document.getElementById('mc-jsonp');
-      if (s) s.parentNode.removeChild(s);
-    };
-
-    const script = document.createElement('script');
-    script.id = 'mc-jsonp';
-    script.src = jsonpUrl;
-    document.body.appendChild(script);
-
-    // Timeout fallback
-    setTimeout(function () {
-      if (btn.disabled) {
-        btn.disabled = false;
-        btn.textContent = 'Subscribe to m4metallurgy';
-        showMsg('error', 'Request timed out. Please try again.');
-      }
-    }, 8000);
+    })
+    .catch(function () {
+      btn.disabled = false;
+      btn.textContent = 'Subscribe to m4metallurgy';
+      showMsg('error', 'Connection error. Please try again.');
+    });
   });
 })();
 </script>
